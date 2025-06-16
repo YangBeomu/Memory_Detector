@@ -1,0 +1,68 @@
+# 빌드 결과물
+[Bb]in/
+[Oo]bj/
+[Ll]ib/
+*.exe
+*.dll
+*.pdb
+*.cache
+*.log
+*.vspscc
+*.vssscc
+*.user
+*.suo
+*.sdf
+*.dbmdl
+*.bak
+*.ncb
+*.opendb
+*.VC.db
+*.VC.VC.opendb
+
+# Visual Studio 관련
+.vs/
+.vscode/
+*.csproj.user
+*.csproj.FileListAbsolute.txt
+*.sln.docstates
+
+# NuGet 패키지
+packages/
+*.nupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Rider
+.idea/
+
+# Resharper
+*.DotSettings.user
+
+# 기타
+TestResults/
+*.tgz
+*.tmp
+*.log
+*.pid
+*.pid.lock
+
+# OS별 무시
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Python (추가 프로젝트에 따라)
+__pycache__/
+*.py[cod]
+
+# 기타 Git 무시
+*.orig
+*.rej
+*.swo
+*.swp
+*~
