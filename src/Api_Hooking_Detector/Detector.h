@@ -13,12 +13,15 @@ protected:
 	};
 
 private:
-	static constexpr int READ_PROCESS_MEMORY_SIZE = 0x4000;
+	//static constexpr int READ_PROCESS_MEMORY_SIZE = 0x4000;
 	static constexpr int MODS_COUNT = 0x400;
 
 	std::tstring processName_{};
 	HANDLE processHandle_{};
 	std::tstring processBinaryPath_{};
+
+	//sha256
+	std::vector<BYTE> processBinaryHash_{}; 
 
 	//dll variable
 	std::vector<std::tstring> dllList_{};
@@ -27,11 +30,18 @@ private:
 	std::map <std::string, std::vector<std::string>> iatInfo_{}; //dll, functions
 	std::set<std::tstring> EATInfo_{};
 
+	//Utils
+	std::vector<BYTE> ReadBinary();
+
+	//PROCESS INFO
 	HANDLE GetProcessHandle() ;
 	std::tstring GetProcessBinaryPath();
 
+	//HASH
+	std::vector<BYTE> CalcHash(PBYTE buffer,uint bufferSize);
+
 	//DLL
-	std::vector<std::tstring> GetDLLs();
+	std::vector<std::tstring> GetDllList(HANDLE handle);
 	
 	//IAT
 	DWORD CalcRVA(const IMAGE_NT_HEADERS* ntHeader, const DWORD& RVA);
@@ -56,17 +66,27 @@ protected:
 	std::mutex dataMtx_{}, statusMtx_{};
 	std::condition_variable cv_{};
 
-	bool CompareDLL();
-	bool CompareIAT();
+	//bool CompareDLL();
+	//bool CompareIAT();
+
 	void WorkerFunc();
 
 public:
-	Detector(const std::tstring process);
+	explicit Detector(const std::tstring process);
 	~Detector();
 
 	void Run();
 	void Stop();
 
+	void PrintHash();
+	bool CompareHash(const std::vector<BYTE>& hash);
+	
+	void PrintDLLs();
+	bool CompareDLLs();
+	
 	void PrintIAT();
+	bool CompareIAT();
+
+
 };
 

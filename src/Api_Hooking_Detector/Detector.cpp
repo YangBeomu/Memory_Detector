@@ -9,25 +9,61 @@ Detector::Detector(const std::tstring process)
 
 	if ((processHandle_ = GetProcessHandle()) == nullptr) throw runtime_error("Failed to get process handle.");
 	if ((processBinaryPath_ = GetProcessBinaryPath()).empty()) throw runtime_error("Failed to get process binary path.");
-	if ((dllList_ = GetDLLs()).empty()) throw runtime_error("Failed to get dll list.");
+
+	//HASH
+	{
+		auto buffer = ReadBinary();
+		if (buffer.empty()) throw runtime_error("Failed to read binary.");
+
+		auto binaryHash = CalcHash(buffer.data(), buffer.size());
+		if (binaryHash.empty()) throw runtime_error("Failed to calculate binary hash.");
+
+		processBinaryHash_ = binaryHash;
+	}
+
+	//DLL
+	{
+		HANDLE handle{};
+		core::ST_PROCESSINFO pi{};
+
+		try {
+			if (!core::CreateProcess(processBinaryPath_.c_str(), 0, 0, &pi)) throw runtime_error("Failed to create process.");
+
+			if ((handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pi.dwProcessId)) == INVALID_HANDLE_VALUE)
+				throw runtime_error("Failed to open process.");
+
+			::Sleep(100);
+
+			if ((dllList_ = GetDllList(handle)).empty()) throw runtime_error("Failed to get dll list.");
+
+			core::TerminateProcess(pi.hProcess);
+			system("cls");
+			core::CloseProcessHandle(pi.hProcess);
+
+		}
+		catch (const exception& e) {
+			if (pi.hProcess) {
+				core::TerminateProcess(pi.hProcess);
+				core::CloseProcessHandle(pi.hProcess);
+			}
+
+			throw e;
+		}
+	}
 
 	//IAT
-	HANDLE binaryHandle{};
+	{
+		try {
+			auto buffer = ReadBinary();
+			if (buffer.empty()) throw runtime_error("Failed to read binary.");
 
-	if ((binaryHandle = core::CreateFile(processBinaryPath_.c_str(), core::GENERIC_READ_, core::E_FILE_DISPOSITION::OPEN_EXISTING_, NULL)) == INVALID_HANDLE_VALUE)
-		throw runtime_error("Failed to open binary.");
-
-	int binarySize = core::GetFileSize(binaryHandle);
-	unique_ptr<BYTE> buffer(new BYTE[binarySize]);
-
-	DWORD readed{};
-
-	if (!core::ReadFile(binaryHandle, buffer.get(), binarySize, &readed))
-		throw runtime_error("Failed to read binary.");
-
-	core::CloseFile(binaryHandle);
-
-	iatInfo_ = GetIAT(buffer.get());
+			iatInfo_ = GetIAT(buffer.data());
+			if (iatInfo_.empty()) throw runtime_error("Failed to get iat.");
+		}
+		catch (const exception& e) {
+			throw e;
+		}
+	}
 
 	//THREAD
 	workerThread_ = std::thread(&Detector::WorkerFunc, this);
@@ -41,6 +77,33 @@ Detector::~Detector() {
 	}
 }
 
+//utility
+vector<BYTE> Detector::ReadBinary() {
+	vector<BYTE> ret{};
+	HANDLE handle{};
+
+	try {
+		if ((handle = core::CreateFile(processBinaryPath_.c_str(), core::GENERIC_READ_, core::E_FILE_DISPOSITION::OPEN_EXISTING_, NULL)) == INVALID_HANDLE_VALUE)
+			throw runtime_error("Failed to open binary.");
+
+		int binarySize = core::GetFileSize(handle);
+		ret.resize(binarySize);
+
+		DWORD readed{};
+
+		if (!core::ReadFile(handle, ret.data(), binarySize, &readed))
+			throw runtime_error("Failed to read binary.");
+	}
+	catch (const exception& e) {
+		WarningMsg(string("<ReadBinary> ").append(e.what()));
+	}
+
+	if (handle) core::CloseFile(handle);
+
+	return ret;
+}
+
+//process
 HANDLE Detector::GetProcessHandle() {
 	HANDLE handle{};
 
@@ -62,32 +125,53 @@ tstring Detector::GetProcessBinaryPath() {
 	return tempPath;
 }
 
+
+
+//hash
+vector<BYTE> Detector::CalcHash(PBYTE buffer, uint bufferSize) {
+	vector<BYTE> ret(SHA256_DIGEST_LENGTH, 0);
+	EVP_MD_CTX* ctx = EVP_MD_CTX_new(); // Create a new EVP_MD_CTX
+	const EVP_MD* md = EVP_sha256();    // Specify SHA256 algorithm
+
+	try {
+		if (buffer == nullptr || bufferSize == 0) throw runtime_error("Invalid buffer or size.");
+		uchar hash[SHA256_DIGEST_LENGTH]{};
+
+		if (!ctx) throw runtime_error("Failed to create EVP_MD_CTX");
+		if (EVP_DigestInit_ex(ctx, md, nullptr) != 1) throw runtime_error("Failed to initialize digest");
+		if (EVP_DigestUpdate(ctx, buffer, bufferSize) != 1) throw runtime_error("Failed to update digest");
+		if (EVP_DigestFinal_ex(ctx, hash, nullptr) != 1) throw runtime_error("Failed to finalize digest");
+
+		memcpy(ret.data(), hash, sizeof(hash));
+	}
+	catch (const exception& e) {
+		WarningMsg(string("<CalcHash> ").append(e.what()));
+	}
+	EVP_MD_CTX_free(ctx); // Free the EVP_MD_CTX
+	return ret;
+}
+
 //dll
-vector<tstring> Detector::GetDLLs() {
+vector<tstring> Detector::GetDllList(HANDLE handle) {
 	vector<tstring> ret{};
 
 	try {
 		HMODULE hMods[MODS_COUNT]{};
 		DWORD cbNeeded{};
-		HANDLE handle{};
 
-		if ((handle = core::LoadLibrary(processBinaryPath_.c_str())) == INVALID_HANDLE_VALUE)
-			throw runtime_error("Failed to load library.");
+		if (!EnumProcessModulesEx(handle, hMods, sizeof(hMods), &cbNeeded, LIST_MODULES_ALL))
+			throw runtime_error("Failed to enumerate process modules.");
 
-		if (!EnumProcessModules(handle, hMods, sizeof(hMods), &cbNeeded))
-			throw runtime_error("Failed to enumerate modules.");
+		//check load dll
+		for (unsigned int i = 1; i < (cbNeeded / sizeof(HMODULE)); i++) {
+			TCHAR szModName[MAX_PATH]{};
 
-		TCHAR modName[MAX_PATH]{};
-
-		for (int i = 0; i < cbNeeded / sizeof(HMODULE); i++) {
-			if (GetModuleBaseName(handle, hMods[i], modName, sizeof(modName)))
-				ret.push_back(modName);
+			if (GetModuleBaseName(handle, hMods[i], szModName, sizeof(szModName) / sizeof(TCHAR)))
+				ret.push_back(szModName);
 		}
-
-		CloseHandle(handle);
 	}
 	catch (const exception& e) {
-		WarningMsg(string("<GetDLL> ").append(e.what()));
+		WarningMsg(string("<GetDLLList> ").append(e.what()));
 	}
 
 	return ret;
@@ -176,7 +260,6 @@ DWORD Detector::CalcRVA(const IMAGE_NT_HEADERS* ntHeader, const DWORD& RVA) {
 	return ret;
 }
 
-
 //map<tstring, vector<tstring>> Detector::GetIAT(core::CPEParser& parser) {
 //	map<tstring, vector<tstring>> ret{};
 //
@@ -217,7 +300,6 @@ map<string, vector<string>> Detector::GetIAT(PBYTE dataPtr, bool dynamic) {
 
 		DWORD importOffset = dynamic ? importDir.VirtualAddress : CalcRVA(nt, importDir.VirtualAddress);
 		if (!importOffset) throw runtime_error("Failed to calculate import offset");
-		if (importOffset == 0) throw runtime_error("Failed to find import directory in sections.");
 
 		auto* impDesc = (IMAGE_IMPORT_DESCRIPTOR*)(dataPtr + importOffset);
 
@@ -294,28 +376,63 @@ set<tstring> Detector::GetEAT(core::CPEParser& parser) {
 	return ret;
 }
 
-bool Detector::CompareDLL() {
+void Detector::PrintHash() {
+	for (const auto& byte : processBinaryHash_)
+		printf("%02x", byte);
+
+	cout << endl;
+}
+
+bool Detector::CompareHash(const vector<BYTE>& hash) {
+	try {
+		if (processBinaryHash_.empty()) throw runtime_error("process binary hash is empty.");
+
+		//Compare
+		if (hash != processBinaryHash_)
+			return false;
+
+	}
+	catch (const exception& e) {
+		WarningMsg(string("<CompareHash> ").append(e.what()));
+		return false;
+	}
+
+	return true;
+}
+
+bool Detector::CompareDLLs() {
 	HMODULE hMods[MODS_COUNT]{};
 	DWORD cbNeeded{};
 
 	try {
-		if (!EnumProcessModulesEx(processHandle_, hMods, sizeof(hMods), &cbNeeded, LIST_MODULES_ALL))
-			throw runtime_error("Failed to enumerate process modules.");
+		if (dllList_.empty()) return false;
 
+		vector<tstring> cmpDllList = GetDllList(processHandle_);
 
+		for (int i = 0; i < cmpDllList.size(); i++) {
+			bool cmpRet = false;
 
-		//check load dll
-		for (unsigned int i = 1; i < (cbNeeded / sizeof(HMODULE)); i++) {
-			TCHAR szModName[MAX_PATH]{};
-
-			if (GetModuleBaseName(processHandle_, hMods[i], szModName, sizeof(szModName) / sizeof(TCHAR))) {
-
+			for (int j = 0; j < dllList_.size(); j++) {
+				if (cmpDllList[i] == dllList_[j]) {
+					cmpRet = true;
+					break;
+				}
 			}
+
+			if (!cmpRet) {
+				wcout << "Other DLL : ";
+				wcout << cmpDllList.at(i) << endl;
+				break;
+			}
+		}
+
+		if (dllList_ != cmpDllList) {
+			cout << "DLL list mismatch!" << endl;
+			return false;
 		}
 	}
 	catch (const exception& e) {
-		WarningMsg(string("<CompareDLL> ").append(e.what()));
-		return false;
+		ErrorMsg(string("<CompareDLLs> ").append(e.what()));
 	}
 
 	return true;
@@ -326,32 +443,49 @@ bool Detector::CompareIAT() {
 	DWORD cbNeeded{};
 
 	try {
+		if (iatInfo_.empty()) return false;
+
 		if (!EnumProcessModulesEx(processHandle_, hMods, sizeof(hMods), &cbNeeded, LIST_MODULES_ALL))
 			throw runtime_error("Failed to enumerate process modules.");
 
-		unique_ptr<BYTE> buffer(new BYTE[READ_PROCESS_MEMORY_SIZE]);
+		MODULEINFO moduleInfo{};
+
+		if (!GetModuleInformation(processHandle_, hMods[0], &moduleInfo, sizeof(moduleInfo)))
+			throw runtime_error("Failed to get module information.");
+
+		std::vector<BYTE> buffer(moduleInfo.SizeOfImage, 0);
 		SIZE_T readed{};
 
-		if (!ReadProcessMemory(processHandle_, hMods[0], buffer.get(), READ_PROCESS_MEMORY_SIZE, &readed))
-			throw runtime_error("Failed to read process memory");
 
-		auto test = GetIAT(buffer.get(), true);
-		if (test.empty()) throw runtime_error("Failed to get iat ");
+		if (!ReadProcessMemory(processHandle_, hMods[0], buffer.data(), buffer.size(), &readed))
+			throw runtime_error("Failed to read process memory.");
+
+		auto dpIATInfo = GetIAT(buffer.data(), true);
+		if (dpIATInfo.empty()) throw runtime_error("Failed to get iat ");
+
+		if (dpIATInfo != iatInfo_) {
+			cout << "[WARNING] Wrong type of iAT etected!" << endl;
+			return false;
+		}
 	}
 	catch (const exception& e) {
-		WarningMsg(string("<CompareIAT> ").append(e.what()));
-		return false;
+		ErrorMsg(string("<CompareIAT> ").append(e.what()));
 	}
 
 	return true;
 }
 
+void Detector::PrintDLLs() {
+	if (dllList_.empty()) return;
+
+	for (const auto& dll : dllList_) {
+		wcout << dll.c_str() << endl;
+	}
+}
+
 void Detector::PrintIAT() {
-	core::CPEParser parser{};
-
-	CompareIAT();
-
 	if (iatInfo_.empty()) return;
 
-	cout << endl;
+	for (const auto& info : iatInfo_)
+		cout << info.first << endl;
 }

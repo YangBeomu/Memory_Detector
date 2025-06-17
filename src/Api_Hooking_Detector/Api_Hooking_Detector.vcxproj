@@ -129,22 +129,22 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <OutDir>$(SolutionDir)\..\..\bin\$(Platform)$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)\..\..\obj\$(ProjectName)\$(Platform)$(Configuration)\</IntDir>
-    <ExternalIncludePath>D:\sourcecode\Api_Hooking_Detector\src\Api_Hooking_Detector\..\..\inc\cppcore-master\Inc\</ExternalIncludePath>
+    <ExternalIncludePath>D:\sourcecode\Api_Hooking_Detector\src\Api_Hooking_Detector\..\..\inc\cppcore-master\Inc\;D:\sourcecode\Api_Hooking_Detector\src\Api_Hooking_Detector\..\..\inc\</ExternalIncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <OutDir>$(SolutionDir)\..\..\bin\$(Platform)$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)\..\..\obj\$(ProjectName)\$(Platform)$(Configuration)\</IntDir>
-    <ExternalIncludePath>D:\sourcecode\Api_Hooking_Detector\src\Api_Hooking_Detector\..\..\inc\cppcore-master\Inc\</ExternalIncludePath>
+    <ExternalIncludePath>D:\sourcecode\Api_Hooking_Detector\src\Api_Hooking_Detector\..\..\inc\cppcore-master\Inc\;D:\sourcecode\Api_Hooking_Detector\src\Api_Hooking_Detector\..\..\inc\</ExternalIncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseMT|x64'">
     <OutDir>$(SolutionDir)\..\..\bin\$(Platform)$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)\..\..\obj\$(ProjectName)\$(Platform)$(Configuration)\</IntDir>
-    <ExternalIncludePath>D:\sourcecode\Api_Hooking_Detector\src\Api_Hooking_Detector\..\..\inc\cppcore-master\Inc\</ExternalIncludePath>
+    <ExternalIncludePath>D:\sourcecode\Api_Hooking_Detector\src\Api_Hooking_Detector\..\..\inc\cppcore-master\Inc\;D:\sourcecode\Api_Hooking_Detector\src\Api_Hooking_Detector\..\..\inc\</ExternalIncludePath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='DebugMT|x64'">
     <OutDir>$(SolutionDir)\..\..\bin\$(Platform)$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)\..\..\obj\$(ProjectName)\$(Platform)$(Configuration)\</IntDir>
-    <ExternalIncludePath>D:\sourcecode\Api_Hooking_Detector\src\Api_Hooking_Detector\..\..\inc\cppcore-master\Inc\</ExternalIncludePath>
+    <ExternalIncludePath>D:\sourcecode\Api_Hooking_Detector\src\Api_Hooking_Detector\..\..\inc\cppcore-master\Inc\;D:\sourcecode\Api_Hooking_Detector\src\Api_Hooking_Detector\..\..\inc\</ExternalIncludePath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
@@ -212,7 +212,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir)..\..\lib\cppcore\$(Platform)$(Configuration)\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\..\lib\cppcore\$(Platform)$(Configuration)\;$(ProjectDir)..\..\lib\openssl\$(Platform)$(Configuration)\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -229,7 +229,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir)..\..\lib\cppcore\$(Platform)$(Configuration)\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\..\lib\cppcore\$(Platform)$(Configuration)\;$(ProjectDir)..\..\lib\openssl\$(Platform)$(Configuration)\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='ReleaseMT|x64'">
@@ -247,7 +247,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir)..\..\lib\cppcore\$(Platform)$(Configuration)\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\..\lib\cppcore\$(Platform)$(Configuration)\;$(ProjectDir)..\..\lib\openssl\$(Platform)$(Configuration)\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='DebugMT|x64'">
@@ -265,7 +265,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(ProjectDir)..\..\lib\cppcore\$(Platform)$(Configuration)\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(ProjectDir)..\..\lib\cppcore\$(Platform)$(Configuration)\;$(ProjectDir)..\..\lib\openssl\$(Platform)$(Configuration)\;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>

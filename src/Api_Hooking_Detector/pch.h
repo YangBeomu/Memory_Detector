@@ -20,5 +20,10 @@
 
 #include "cppcore.h"
 
+#include "openssl/evp.h" // Include the EVP API
+#include "openssl/sha.h"
+
 #pragma comment(lib, "cppcore.lib")
 #pragma comment(lib, "imagehlp.lib")
+#pragma comment(lib, "libcrypto.lib")
+#pragma comment(lib, "libssl.lib")
