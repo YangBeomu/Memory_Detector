@@ -1,7 +1,9 @@
 #include "pch.h"  
-#include "Api_Hooking_Detector.h"
+#include "Memory_Detector.h"
 
 using namespace std;
+
+tstring g_fileName{};
 
 void usage() {
 	cout << "Usage:Api_Hooking_Detector.exe <process>" << endl;
@@ -9,7 +11,7 @@ void usage() {
 	cout << "This program detects API hooking by comparing DLLs and IAT." << endl;
 }
 
-bool parse(int argc, char* argv[]) {
+bool parse(int argc, TCHAR* argv[]) {
 	if (argc < 2) {
 		usage();
 		return false;
@@ -18,17 +20,16 @@ bool parse(int argc, char* argv[]) {
 		cerr << "[parse] Too many arguments." << endl;
 		return false;
 	}
-	if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
-		usage();
-		return false;
-	}
+
+	g_fileName = argv[1];
+
 	return true;
 }
 
 void PrintList() {
     cout << "===== API Hooking Detector Commands =====" << endl;
-    cout << "1. Compare Hash" << endl;
-    cout << "2. Print Hash" << endl;
+    cout << "1. Print Hash" << endl;
+    cout << "2. Compare Hash" << endl;
     cout << "3. Print DLL List" << endl;
     cout << "4. Compare DLL List" << endl;
 	cout << "5. Print IAT Information" << endl;
@@ -40,13 +41,11 @@ void PrintList() {
     cout << "Enter your choice: ";
 }
 
-int main(int argc, char* argv[]) {
-		
-
+int _tmain(int argc, TCHAR* argv[]) {
 	try {
-		//if (!parse(argc, argv)) throw runtime_error("Failed to parse");
+		if (!parse(argc, argv)) throw runtime_error("Failed to parse");
 
-		Detector detector(L"Project1.exe");
+		Detector detector(g_fileName);
 
 		string input{};
 
@@ -59,7 +58,14 @@ int main(int argc, char* argv[]) {
 			case 0: // Exit
 				cout << "Exiting program..." << endl;
 				return EXIT_SUCCESS;
-			case 1:
+			case 1: // Print Hash (이전 2번)
+				{
+					cout << "===== Hash Information =====" << endl;
+					detector.PrintHash();
+					cout << "============================" << endl;
+				}
+				break;
+			case 2: // Compare Hash (이전 1번)
 				{
 					cout << "===== Hash =====" << endl;
 					BYTE tmp[] = "test";
@@ -73,13 +79,6 @@ int main(int argc, char* argv[]) {
 					}
 
 					cout << "================" << endl;
-				}
-				break;
-			case 2: // Print Hash
-				{
-					cout << "===== Hash Information =====" << endl;
-					detector.PrintHash();
-					cout << "============================" << endl;
 				}
 				break;
 			case 3: // Print DLL List

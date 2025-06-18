@@ -40,6 +40,7 @@
     <ProjectGuid>{30f8abb5-75ae-466d-8fcc-d8aa8d91dbf4}</ProjectGuid>
     <RootNamespace>ApiHookingDetector</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>Memory_Detector</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -279,7 +280,7 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Api_Hooking_Detector.h" />
+    <ClInclude Include="Memory_Detector.h" />
     <ClInclude Include="Detector.h" />
     <ClInclude Include="pch.h" />
   </ItemGroup>

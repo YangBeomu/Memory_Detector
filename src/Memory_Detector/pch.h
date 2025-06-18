@@ -12,6 +12,7 @@
 #include <mutex>
 #include <condition_variable>
 
+#include <tchar.h>
 
 #include <Windows.h>
 #include <winnt.h>
