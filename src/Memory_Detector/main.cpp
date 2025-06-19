@@ -4,24 +4,26 @@
 using namespace std;
 
 tstring g_fileName{};
+tstring g_logPath{};
 
 void usage() {
-	cout << "Usage:Api_Hooking_Detector.exe <process>" << endl;
-	cout << "Example:Api_Hooking_Detector.exe Project1.exe" << endl;
+	cout << "Usage:Api_Hooking_Detector.exe <process> <log_path>" << endl;
+	cout << "Example:Api_Hooking_Detector.exe Project1.exe ." << endl;
 	cout << "This program detects API hooking by comparing DLLs and IAT." << endl;
 }
 
 bool parse(int argc, TCHAR* argv[]) {
-	if (argc < 2) {
+	if (argc < 3) {
 		usage();
 		return false;
 	}
-	if (argc > 2) {
+	if (argc > 3) {
 		cerr << "[parse] Too many arguments." << endl;
 		return false;
 	}
 
 	g_fileName = argv[1];
+	g_logPath = argv[2];
 
 	return true;
 }
@@ -35,7 +37,9 @@ void PrintList() {
 	cout << "5. Print IAT Information" << endl;
     cout << "6. Compare IAT (Import Address Table)" << endl;
     cout << "7. Run Full Detection" << endl;
-    cout << "8. Clear" << endl;
+    cout << "8. Stop Full Detection" << endl;
+	cout << "9. Run Test Function" << endl;
+    cout << "10. Clear Screen" << endl;
     cout << "0. Exit" << endl;
     cout << "=========================================" << endl;
     cout << "Enter your choice: ";
@@ -46,6 +50,7 @@ int _tmain(int argc, TCHAR* argv[]) {
 		if (!parse(argc, argv)) throw runtime_error("Failed to parse");
 
 		Detector detector(g_fileName);
+		Logger logger(g_logPath);
 
 		string input{};
 
@@ -118,7 +123,21 @@ int _tmain(int argc, TCHAR* argv[]) {
 					cout << "=================================" << endl;
 				}
 				break;
-			case 8: // Clear
+			case 8: // Stop Detection
+				{
+					cout << "===== Stopping Detection =====" << endl;
+					detector.Stop();
+					cout << "==============================" << endl;
+				}
+				break;
+			case 9: // Test Function
+				{
+					cout << "===== Running Test Function =====" << endl;
+					detector.test();
+					cout << "=================================" << endl;
+				}
+				break;
+			case 10: // Clear Screen
 				system("CLS");
 				break;
 			default:

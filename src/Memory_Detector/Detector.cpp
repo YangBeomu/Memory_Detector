@@ -6,20 +6,26 @@ using namespace core;
 
 Detector::Detector(const std::tstring process)
 	: processName_(process) {
-
 	if ((processHandle_ = GetProcessHandle()) == nullptr) throw runtime_error("Failed to get process handle.");
 	if ((processBinaryPath_ = GetProcessBinaryPath()).empty()) throw runtime_error("Failed to get process binary path.");
 
+	auto buffer = ReadBinary();
+	if (buffer.empty()) throw runtime_error("Failed to read binary.");
+
 	//HASH
 	{
-		auto buffer = ReadBinary();
-		if (buffer.empty()) throw runtime_error("Failed to read binary.");
+		//auto buffer = ReadBinary();
+		//if (buffer.empty()) throw runtime_error("Failed to read binary.");
 
 		auto binaryHash = CalcHash(buffer.data(), buffer.size());
 		if (binaryHash.empty()) throw runtime_error("Failed to calculate binary hash.");
 
 		processBinaryHash_ = binaryHash;
 	}
+
+	//SECTION
+	textSectionBinary_ = GetSectionBinary(buffer, Detector::Section::TEXT);
+	if (textSectionBinary_.empty()) throw runtime_error("Failed to get section binary");
 
 	//DLL
 	{
@@ -54,9 +60,8 @@ Detector::Detector(const std::tstring process)
 	//IAT
 	{
 		try {
-			auto buffer = ReadBinary();
-			if (buffer.empty()) throw runtime_error("Failed to read binary.");
-
+			//auto buffer = ReadBinary();
+			//if (buffer.empty()) throw runtime_error("Failed to read binary.");
 			iatInfo_ = GetIAT(buffer.data());
 			if (iatInfo_.empty()) throw runtime_error("Failed to get iat.");
 		}
@@ -86,7 +91,7 @@ vector<BYTE> Detector::ReadBinary() {
 		if ((handle = core::CreateFile(processBinaryPath_.c_str(), core::GENERIC_READ_, core::E_FILE_DISPOSITION::OPEN_EXISTING_, NULL)) == INVALID_HANDLE_VALUE)
 			throw runtime_error("Failed to open binary.");
 
-		int binarySize = core::GetFileSize(handle);
+		QWORD binarySize = core::GetFileSize(handle);
 		ret.resize(binarySize);
 
 		DWORD readed{};
@@ -125,8 +130,6 @@ tstring Detector::GetProcessBinaryPath() {
 	return tempPath;
 }
 
-
-
 //hash
 vector<BYTE> Detector::CalcHash(PBYTE buffer, uint bufferSize) {
 	vector<BYTE> ret(SHA256_DIGEST_LENGTH, 0);
@@ -148,6 +151,58 @@ vector<BYTE> Detector::CalcHash(PBYTE buffer, uint bufferSize) {
 		WarningMsg(string("<CalcHash> ").append(e.what()));
 	}
 	EVP_MD_CTX_free(ctx); // Free the EVP_MD_CTX
+	return ret;
+}
+
+//section
+std::vector<BYTE> Detector::GetSectionBinary(vector<BYTE>& binary, const Detector::Section& sc) {
+	vector<BYTE> ret{};
+
+	try {
+		switch (sc) {
+		case Detector::Section::TEXT: {
+			HMODULE hMods[MODS_COUNT]{};
+
+			DWORD needed{};
+			if (!EnumProcessModulesEx(processHandle_, hMods, sizeof(hMods), &needed, 0))
+				throw runtime_error("Failed to get modules.");
+
+			MODULEINFO mi{};
+
+			if (!GetModuleInformation(processHandle_, hMods[0], &mi, sizeof(mi)))
+				throw runtime_error("Failed to get module info.");
+
+			ret.resize(mi.SizeOfImage);
+			SIZE_T readed{};
+
+			if (!ReadProcessMemory(processHandle_, hMods[0], ret.data(), ret.size(), &readed))
+				throw runtime_error("Failed to read process memory.");
+
+			IMAGE_DOS_HEADER* dosHeader = reinterpret_cast<IMAGE_DOS_HEADER*>(ret.data());
+			IMAGE_NT_HEADERS* ntHeader = reinterpret_cast<IMAGE_NT_HEADERS*>(ret.data() + dosHeader->e_lfanew);
+			IMAGE_SECTION_HEADER* sectionHeader = IMAGE_FIRST_SECTION(ntHeader);
+
+			DWORD va = sectionHeader->PointerToRawData; //ntHeader->OptionalHeader.ImageBase + sectionHeader->VirtualAddress;
+			DWORD vsz = sectionHeader->Misc.VirtualSize;
+
+			ret.clear();
+			ret.resize(vsz);
+
+			if (!ReadProcessMemory(processHandle_, hMods[0] + va, ret.data(), vsz, &readed))
+				throw runtime_error("Failed to read process memory.");
+
+		}
+		break;
+		default: {
+
+		}
+		break;
+		}
+	}
+	catch (const exception& e) {
+		WarningMsg(string("<GetSectionBinary> ").append(e.what()));
+	}
+
 	return ret;
 }
 
@@ -218,6 +273,8 @@ void Detector::WorkerFunc() {
 				break;
 			}
 			case STATUS_RUNNING: {
+				if (!CompareDLLs());
+				if (!CompareIAT());
 				break;
 			}
 			case STATUS_STOPPED: {
@@ -241,6 +298,8 @@ void Detector::WorkerFunc() {
 		}
 	}
 }
+
+
 
 DWORD Detector::CalcRVA(const IMAGE_NT_HEADERS* ntHeader, const DWORD& RVA) {
 	auto* section = IMAGE_FIRST_SECTION(ntHeader);
@@ -339,8 +398,7 @@ map<string, vector<string>> Detector::GetIAT(PBYTE dataPtr, bool dynamic) {
 				}
 				else {
 					// Import by ordinal
-					//std::cout << "  Ordinal: " << (thunk->u1.Ordinal & 0xFFFF) << std::endl;
-					ret[dllName].push_back(reinterpret_cast<char*>(thunk->u1.Ordinal & 0xFFFF));
+					ret[dllName].push_back(std::to_string(thunk->u1.Ordinal & 0xFFFF));
 				}
 
 				++thunk;
@@ -488,4 +546,70 @@ void Detector::PrintIAT() {
 
 	for (const auto& info : iatInfo_)
 		cout << info.first << endl;
+}
+
+void Detector::test() {
+	HMODULE hMods[MODS_COUNT]{};
+
+	DWORD needed{};
+	try {
+		if (!EnumProcessModulesEx(processHandle_, hMods, sizeof(hMods), &needed, 0))
+			throw runtime_error("Failed to get modules.");
+
+
+		//mi
+		MODULEINFO mi{};
+
+		if (!GetModuleInformation(processHandle_, hMods[0], &mi, sizeof(mi)))
+			throw runtime_error("Failed to get module info.");
+
+		cout << "entry point : " << mi.EntryPoint << endl;
+		cout << "mi.lpBaseOfDll : " << mi.lpBaseOfDll << endl;
+		cout << "mi.SizeOfImage : " << mi.SizeOfImage << endl;
+
+		//bi
+		MEMORY_BASIC_INFORMATION bi{};
+
+		SIZE_T size = VirtualQueryEx(processHandle_, hMods[0], &bi, sizeof(bi));
+		cout << "size : " << size << endl;
+		{
+			cout << "MEMORY_BASIC_INFORMATION:" << endl;
+			cout << "  BaseAddress: 0x" << hex << bi.BaseAddress << dec << endl;
+			cout << "  AllocationBase: 0x" << hex << bi.AllocationBase << dec << endl;
+			cout << "  AllocationProtect: 0x" << hex << bi.AllocationProtect << dec << endl;
+#if defined(_WIN64)
+			cout << "  PartitionId: " << bi.PartitionId << endl;
+#endif
+			cout << "  RegionSize: 0x" << hex << bi.RegionSize << dec << " (" << bi.RegionSize << " bytes)" << endl;
+			cout << "  State: 0x" << hex << bi.State << dec << endl;
+			cout << "  Protect: 0x" << hex << bi.Protect << dec << endl;
+			cout << "  Type: 0x" << hex << bi.Type << dec << endl;
+		}
+
+		//ci
+		vector<BYTE> buffer(mi.SizeOfImage);
+		SIZE_T readed{};
+
+		if (ReadProcessMemory(processHandle_, hMods[0], buffer.data(), buffer.size(), &readed)) {
+
+			IMAGE_DOS_HEADER* dosHeader = reinterpret_cast<IMAGE_DOS_HEADER*>(buffer.data());
+			IMAGE_NT_HEADERS* ntHeader = reinterpret_cast<IMAGE_NT_HEADERS*>(buffer.data() + dosHeader->e_lfanew);
+			IMAGE_SECTION_HEADER* sectionHeader = IMAGE_FIRST_SECTION(ntHeader);
+
+			DWORD va = sectionHeader->PointerToRawData; //ntHeader->OptionalHeader.ImageBase + sectionHeader->VirtualAddress;
+			DWORD vsz = sectionHeader->Misc.VirtualSize;
+
+			buffer.clear();
+			buffer.resize(vsz);
+
+			if (ReadProcessMemory(processHandle_, hMods[0] + va, buffer.data(), vsz, &readed)) {
+				if (buffer == textSectionBinary_) {
+					cout << "Same!" << endl;
+				}
+			}
+		}
+	}
+	catch (const exception& e) {
+		WarningMsg(string("<test> ").append(e.what()));
+	}
 }
