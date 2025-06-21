@@ -23,7 +23,22 @@ protected:
 		RSRC = 7,     // 리소스 섹션
 		RELOC = 8,    // 재배치 정보 섹션
 		TLS = 9,      // 스레드 로컬 스토리지 섹션
-		DEBUG = 10    // 디버그 정보 섹션
+		DEBUG = 10,    // 디버그 정보 섹션
+		SECTION_COUNT
+	};
+
+	std::vector<std::string> sectionToStringAry {
+	".text",   // TEXT
+	".rdata",  // RDATA
+	".data",   // DATA
+	".bss",    // BSS
+	".idata",  // IDATA
+	".edata",  // EDATA
+	".pdata",  // PDATA
+	".rsrc",   // RSRC
+	".reloc",  // RELOC
+	".tls",    // TLS
+	".debug",  // DEBUG
 	};
 
 private:
@@ -38,7 +53,8 @@ private:
 	std::vector<BYTE> processBinaryHash_{}; 
 
 	//.code section variable
-	std::vector<BYTE> textSectionBinary_{};
+	//std::vector<BYTE> textSectionBinary_{};
+	std::map<Section, std::vector<BYTE>> sectionHashs_{};
 
 	//dll variable
 	std::vector<std::tstring> dllList_{};
@@ -49,6 +65,8 @@ private:
 
 	//Utils
 	std::vector<BYTE> ReadBinary();
+	HANDLE CreateDummyProcess();
+	void DestroyDummyProcess(HANDLE handle);
 
 	//PROCESS INFO
 	HANDLE GetProcessHandle() ;
@@ -57,8 +75,11 @@ private:
 	//HASH
 	std::vector<BYTE> CalcHash(PBYTE buffer,uint bufferSize);
 
-	//CODE SECTION
-	std::vector<BYTE> GetSectionBinary(std::vector<BYTE>& binary, const Section& sc);
+	//SECTION
+	std::vector<Section> GetSectionTypes(std::vector<BYTE>& binary);
+	std::vector<BYTE> GetSectionData(HANDLE handle, const Section& sc);
+
+	bool SectionCompare();
 
 	//DLL
 	std::vector<std::tstring> GetDllList(HANDLE handle);
@@ -104,6 +125,8 @@ public:
 	void PrintIAT();
 	bool CompareIAT();
 
-	void test();
+	void Test();
+
+	
 };
 

@@ -14,45 +14,41 @@ Detector::Detector(const std::tstring process)
 
 	//HASH
 	{
-		//auto buffer = ReadBinary();
-		//if (buffer.empty()) throw runtime_error("Failed to read binary.");
-
 		auto binaryHash = CalcHash(buffer.data(), buffer.size());
 		if (binaryHash.empty()) throw runtime_error("Failed to calculate binary hash.");
 
 		processBinaryHash_ = binaryHash;
 	}
 
-	//SECTION
-	textSectionBinary_ = GetSectionBinary(buffer, Detector::Section::TEXT);
-	if (textSectionBinary_.empty()) throw runtime_error("Failed to get section binary");
+	HANDLE dummyProcHandle = CreateDummyProcess();
+	if (dummyProcHandle == NULL) throw runtime_error("Failed to create dummy porcess");
+
+	std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+	//SECTION 
+	{
+		try {
+			vector<Section> sectionTypes = GetSectionTypes(buffer);
+			if (sectionTypes.empty()) throw runtime_error("Failed to call get section names");
+
+			for(Section& st : sectionTypes) {
+				auto binary = GetSectionData(dummyProcHandle, st);
+				sectionHashs_[st] = CalcHash(binary.data(), binary.size());
+			}
+		}
+		catch (const exception& e) {
+			DestroyDummyProcess(dummyProcHandle);
+			throw e;
+		}
+	}
 
 	//DLL
 	{
-		HANDLE handle{};
-		core::ST_PROCESSINFO pi{};
-
 		try {
-			if (!core::CreateProcess(processBinaryPath_.c_str(), 0, 0, &pi)) throw runtime_error("Failed to create process.");
-
-			if ((handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pi.dwProcessId)) == INVALID_HANDLE_VALUE)
-				throw runtime_error("Failed to open process.");
-
-			::Sleep(100);
-
-			if ((dllList_ = GetDllList(handle)).empty()) throw runtime_error("Failed to get dll list.");
-
-			core::TerminateProcess(pi.hProcess);
-			system("cls");
-			core::CloseProcessHandle(pi.hProcess);
-
+			if ((dllList_ = GetDllList(dummyProcHandle)).empty()) throw runtime_error("Failed to get dll list.");
 		}
 		catch (const exception& e) {
-			if (pi.hProcess) {
-				core::TerminateProcess(pi.hProcess);
-				core::CloseProcessHandle(pi.hProcess);
-			}
-
+			DestroyDummyProcess(dummyProcHandle);
 			throw e;
 		}
 	}
@@ -60,8 +56,6 @@ Detector::Detector(const std::tstring process)
 	//IAT
 	{
 		try {
-			//auto buffer = ReadBinary();
-			//if (buffer.empty()) throw runtime_error("Failed to read binary.");
 			iatInfo_ = GetIAT(buffer.data());
 			if (iatInfo_.empty()) throw runtime_error("Failed to get iat.");
 		}
@@ -69,6 +63,8 @@ Detector::Detector(const std::tstring process)
 			throw e;
 		}
 	}
+
+	DestroyDummyProcess(dummyProcHandle);
 
 	//THREAD
 	workerThread_ = std::thread(&Detector::WorkerFunc, this);
@@ -106,6 +102,26 @@ vector<BYTE> Detector::ReadBinary() {
 	if (handle) core::CloseFile(handle);
 
 	return ret;
+}
+
+HANDLE Detector::CreateDummyProcess() {
+	//HANDLE ret{};
+	core::ST_PROCESSINFO pi{};
+
+	try {
+		if (!core::CreateProcess(processBinaryPath_.c_str(), 0, 0, &pi)) throw runtime_error("Failed to create process.");
+	}
+	catch (const exception& e) {
+		WarningMsg(string("<GetDummyProcess> ").append(e.what()));
+	}
+
+	return pi.hProcess;
+}
+
+void Detector::DestroyDummyProcess(HANDLE handle) {
+	core::TerminateProcess(handle);
+	system("cls");
+	core::CloseProcessHandle(handle);
 }
 
 //process
@@ -155,52 +171,96 @@ vector<BYTE> Detector::CalcHash(PBYTE buffer, uint bufferSize) {
 }
 
 //section
-std::vector<BYTE> Detector::GetSectionBinary(vector<BYTE>& binary, const Detector::Section& sc) {
+vector<Detector::Section> Detector::GetSectionTypes(vector<BYTE>& binary) {
+	vector<Detector::Section> ret{};
+
+	try {
+		IMAGE_DOS_HEADER* dosHeader = reinterpret_cast<IMAGE_DOS_HEADER*>(binary.data());
+		if (dosHeader == nullptr) throw runtime_error("Failed to convert dos header.");
+
+		IMAGE_NT_HEADERS* ntHeader = reinterpret_cast<IMAGE_NT_HEADERS*>(binary.data() + dosHeader->e_lfanew);
+		if (dosHeader == nullptr) throw runtime_error("Failed to convert nt header.");
+
+		IMAGE_SECTION_HEADER* sectionHeader = IMAGE_FIRST_SECTION(ntHeader);
+		if (dosHeader == nullptr) throw runtime_error("Failed to convert section header.");
+
+		for (int i = 0; i < ntHeader->FileHeader.NumberOfSections; i++) {
+			for (int i = 0; i < sectionToStringAry.size(); i++) {
+				if (sectionToStringAry[i].compare(reinterpret_cast<char*>(sectionHeader->Name)) == 0) {
+					ret.push_back(Section(i));
+					break;
+				}
+			}
+
+			sectionHeader++;
+		}
+	}
+	catch (const exception& e) {
+		WarningMsg(string("<GetSectionTypes> ").append(e.what()));
+	}
+
+	return ret;
+}
+
+std::vector<BYTE> Detector::GetSectionData(HANDLE handle, const Detector::Section& sc) {
 	vector<BYTE> ret{};
 
 	try {
-		switch (sc) {
-		case Detector::Section::TEXT: {
-			HMODULE hMods[MODS_COUNT]{};
+		HMODULE hMods[MODS_COUNT]{};
 
-			DWORD needed{};
-			if (!EnumProcessModulesEx(processHandle_, hMods, sizeof(hMods), &needed, 0))
-				throw runtime_error("Failed to get modules.");
+		DWORD needed{};
+		if (!EnumProcessModulesEx(handle, hMods, sizeof(hMods), &needed, 0))
+			throw runtime_error("Failed to get modules.");
 
-			MODULEINFO mi{};
+		MODULEINFO mi{};
 
-			if (!GetModuleInformation(processHandle_, hMods[0], &mi, sizeof(mi)))
-				throw runtime_error("Failed to get module info.");
+		if (!GetModuleInformation(handle, hMods[0], &mi, sizeof(mi)))
+			throw runtime_error("Failed to get module info.");
 
-			ret.resize(mi.SizeOfImage);
-			SIZE_T readed{};
+		ret.resize(mi.SizeOfImage);
+		SIZE_T readed{};
 
-			if (!ReadProcessMemory(processHandle_, hMods[0], ret.data(), ret.size(), &readed))
-				throw runtime_error("Failed to read process memory.");
+		if (!ReadProcessMemory(handle, hMods[0], ret.data(), ret.size(), &readed))
+			throw runtime_error("Failed to read process memory.");
 
-			IMAGE_DOS_HEADER* dosHeader = reinterpret_cast<IMAGE_DOS_HEADER*>(ret.data());
-			IMAGE_NT_HEADERS* ntHeader = reinterpret_cast<IMAGE_NT_HEADERS*>(ret.data() + dosHeader->e_lfanew);
-			IMAGE_SECTION_HEADER* sectionHeader = IMAGE_FIRST_SECTION(ntHeader);
+		IMAGE_DOS_HEADER* dosHeader = reinterpret_cast<IMAGE_DOS_HEADER*>(ret.data());
+		IMAGE_NT_HEADERS* ntHeader = reinterpret_cast<IMAGE_NT_HEADERS*>(ret.data() + dosHeader->e_lfanew);
+		IMAGE_SECTION_HEADER* sectionHeader = IMAGE_FIRST_SECTION(ntHeader);
 
-			DWORD va = sectionHeader->PointerToRawData; //ntHeader->OptionalHeader.ImageBase + sectionHeader->VirtualAddress;
-			DWORD vsz = sectionHeader->Misc.VirtualSize;
+		string scName{};
+		bool findSection = false;
 
-			ret.clear();
-			ret.resize(vsz);
+		for (int i = 0; i < ntHeader->FileHeader.NumberOfSections; i++) {
+			scName = reinterpret_cast<char*>(sectionHeader->Name);
+			if (scName.empty()) throw runtime_error("Failed to convert section name to string");
 
-			if (!ReadProcessMemory(processHandle_, hMods[0] + va, ret.data(), vsz, &readed))
-				throw runtime_error("Failed to read process memory.");
-
+			if (scName.compare(sectionToStringAry[sc]) == 0) {
+				findSection = true;
+				break;
+			}
+				
+			sectionHeader++;
 		}
-		break;
-		default: {
 
-		}
-		break;
+		if (!findSection) throw runtime_error("Failed to find section");
+
+		QWORD va = sectionHeader->VirtualAddress;
+		DWORD vsz = sectionHeader->Misc.VirtualSize;
+
+		BYTE* realAddr = (reinterpret_cast<BYTE*>(hMods[0]) + va);
+
+		ret.clear();
+		ret.resize(vsz);
+
+		
+		if (!ReadProcessMemory(handle, realAddr, ret.data(), vsz, &readed)) {
+			cout << ::GetLastError() << endl;
+			throw runtime_error("Failed to read process memory.");
 		}
 	}
 	catch (const exception& e) {
 		WarningMsg(string("<GetSectionBinary> ").append(e.what()));
+		ret.clear();
 	}
 
 	return ret;
@@ -548,68 +608,27 @@ void Detector::PrintIAT() {
 		cout << info.first << endl;
 }
 
-void Detector::test() {
+bool Detector::SectionCompare() {
 	HMODULE hMods[MODS_COUNT]{};
 
 	DWORD needed{};
 	try {
-		if (!EnumProcessModulesEx(processHandle_, hMods, sizeof(hMods), &needed, 0))
-			throw runtime_error("Failed to get modules.");
-
-
-		//mi
-		MODULEINFO mi{};
-
-		if (!GetModuleInformation(processHandle_, hMods[0], &mi, sizeof(mi)))
-			throw runtime_error("Failed to get module info.");
-
-		cout << "entry point : " << mi.EntryPoint << endl;
-		cout << "mi.lpBaseOfDll : " << mi.lpBaseOfDll << endl;
-		cout << "mi.SizeOfImage : " << mi.SizeOfImage << endl;
-
-		//bi
-		MEMORY_BASIC_INFORMATION bi{};
-
-		SIZE_T size = VirtualQueryEx(processHandle_, hMods[0], &bi, sizeof(bi));
-		cout << "size : " << size << endl;
-		{
-			cout << "MEMORY_BASIC_INFORMATION:" << endl;
-			cout << "  BaseAddress: 0x" << hex << bi.BaseAddress << dec << endl;
-			cout << "  AllocationBase: 0x" << hex << bi.AllocationBase << dec << endl;
-			cout << "  AllocationProtect: 0x" << hex << bi.AllocationProtect << dec << endl;
-#if defined(_WIN64)
-			cout << "  PartitionId: " << bi.PartitionId << endl;
-#endif
-			cout << "  RegionSize: 0x" << hex << bi.RegionSize << dec << " (" << bi.RegionSize << " bytes)" << endl;
-			cout << "  State: 0x" << hex << bi.State << dec << endl;
-			cout << "  Protect: 0x" << hex << bi.Protect << dec << endl;
-			cout << "  Type: 0x" << hex << bi.Type << dec << endl;
-		}
-
-		//ci
-		vector<BYTE> buffer(mi.SizeOfImage);
-		SIZE_T readed{};
-
-		if (ReadProcessMemory(processHandle_, hMods[0], buffer.data(), buffer.size(), &readed)) {
-
-			IMAGE_DOS_HEADER* dosHeader = reinterpret_cast<IMAGE_DOS_HEADER*>(buffer.data());
-			IMAGE_NT_HEADERS* ntHeader = reinterpret_cast<IMAGE_NT_HEADERS*>(buffer.data() + dosHeader->e_lfanew);
-			IMAGE_SECTION_HEADER* sectionHeader = IMAGE_FIRST_SECTION(ntHeader);
-
-			DWORD va = sectionHeader->PointerToRawData; //ntHeader->OptionalHeader.ImageBase + sectionHeader->VirtualAddress;
-			DWORD vsz = sectionHeader->Misc.VirtualSize;
-
-			buffer.clear();
-			buffer.resize(vsz);
-
-			if (ReadProcessMemory(processHandle_, hMods[0] + va, buffer.data(), vsz, &readed)) {
-				if (buffer == textSectionBinary_) {
-					cout << "Same!" << endl;
-				}
+		for(const auto& sh : sectionHashs_) {
+			auto section = GetSectionData(processHandle_, sh.first);
+			auto hash = CalcHash(section.data(), section.size());
+			if (hash != sh.second) {
+				return false;
 			}
 		}
 	}
 	catch (const exception& e) {
 		WarningMsg(string("<test> ").append(e.what()));
 	}
+
+	return true;
+}
+
+
+void Detector::Test() {
+	if (!SectionCompare()) cout << "!!!!" << endl;
 }

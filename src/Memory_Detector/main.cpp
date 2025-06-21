@@ -133,7 +133,7 @@ int _tmain(int argc, TCHAR* argv[]) {
 			case 9: // Test Function
 				{
 					cout << "===== Running Test Function =====" << endl;
-					detector.test();
+					detector.Test();
 					cout << "=================================" << endl;
 				}
 				break;
