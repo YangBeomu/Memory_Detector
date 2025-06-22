@@ -64,6 +64,15 @@ protected:
 		std::map <std::string, std::vector<std::string>> processIatInfo_{};
 
 		bool processRunning{};
+
+		bool isEmpty() const {
+			LogInformation li{};
+
+			if (memcmp(this, &li, sizeof(LogInformation)) == 0)
+				return true;
+
+			return false;
+		}
 	};
 
 
