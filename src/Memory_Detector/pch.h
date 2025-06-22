@@ -4,6 +4,7 @@
 #include <fstream>
 #include <string> 
 #include <string_view>
+#include <chrono>
 
 #include <vector>
 #include <set>
@@ -19,6 +20,7 @@
 #include <winnt.h>
 #include <imagehlp.h>
 #include <Psapi.h>
+#include <tlhelp32.h>
 
 #include "cppcore.h"
 

@@ -1,12 +1,26 @@
 #pragma once
+
+#include "Detector.h"
+
 class Logger : public core::IFormatterObject
 {
 private:
-	std::tstring fileTitle_{};
 	std::tstring filePath_{};
 	std::map<std::tstring, std::vector<std::tstring>> logMsgs_{};
 
+	//logging msg
+	void WarningMsg(const std::string& msg);
+	void ErrorMsg(const std::string& msg);
+
+	//utils
+	uint64_t GetTimeStamp();
+	std::vector<BYTE> GetNetworkInformation();
+	std::tstring GenerateFileName();
+
+
 protected:
+	void Logging(std::tstring& key, std::tstring& value);
+	
 
 public:
 	enum LogType {
@@ -22,7 +36,9 @@ public:
 	void SetPath(std::tstring path) { filePath_ = path; };
 
 	void OnSync(core::IFormatter& formatter);
-	void Logging(std::tstring& key, std::tstring& value);
-	void Save(const LogType& type);
+	
+	bool Save(const LogType& type);
+	
+	void Log(Detector& dt, Logger::LogType type);
 };
 

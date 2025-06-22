@@ -4,13 +4,16 @@
 using namespace std;
 using namespace core;
 
-Detector::Detector(const std::tstring process)
-	: processName_(process) {
-	if ((processHandle_ = GetProcessHandle()) == nullptr) throw runtime_error("Failed to get process handle.");
+Detector::Detector(const std::tstring process, const uint32_t tick)
+	: processName_(process), workingTick_(tick) {
+	if ((pi_ = GetProcessInfromation()).empty()) throw runtime_error("Failed to get process handle.");
 	if ((processBinaryPath_ = GetProcessBinaryPath()).empty()) throw runtime_error("Failed to get process binary path.");
 
 	auto buffer = ReadBinary();
 	if (buffer.empty()) throw runtime_error("Failed to read binary.");
+
+	//TIMESTAMP
+	startTimeStamp_ = GetTimeStamp();
 
 	//HASH
 	{
@@ -29,7 +32,7 @@ Detector::Detector(const std::tstring process)
 	{
 		try {
 			vector<Section> sectionTypes = GetSectionTypes(buffer);
-			if (sectionTypes.empty()) throw runtime_error("Failed to call get section names");
+			if (sectionTypes.empty()) throw runtime_error("Failed to call get section tyeps");
 
 			for(Section& st : sectionTypes) {
 				auto binary = GetSectionData(dummyProcHandle, st);
@@ -71,11 +74,12 @@ Detector::Detector(const std::tstring process)
 }
 
 Detector::~Detector() {
-	if (workerThread_.joinable()) {
-		stat_ = STATUS_ENDED;
-		Play();
-		workerThread_.join();
-	}
+	End();
+
+	if (workerThread_.joinable()) workerThread_.join();
+
+	core::CloseProcessHandle(pi_.processHandle_);
+
 }
 
 //utility
@@ -124,26 +128,98 @@ void Detector::DestroyDummyProcess(HANDLE handle) {
 	core::CloseProcessHandle(handle);
 }
 
+//log
+uint64_t Detector::GetTimeStamp() {
+	auto now = chrono::system_clock::now();
+	uint64_t ret = chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+
+	return ret;
+}
+
+Detector::LogInformation Detector::GetLogInfo() {
+	LogInformation ret{};
+
+	ret.startTimestamp_ = startTimeStamp_;
+	ret.currentTimestamp_ = GetTimeStamp();
+	ret.processName_ = processName_;
+	ret.processBinaryPath_ = processBinaryPath_;
+	ret.processBinaryHash_ = processBinaryHash_;
+	ret.sectionHashs_ = sectionHashs_;
+	ret.processSectionHashs_ = processSectionHashs_;
+	ret.dllList_ = dllList_;
+	ret.processDllList_ = processDllList_;
+	ret.iatInfo_ = iatInfo_;
+	ret.processIatInfo_ = processIatInfo_;
+	ret.processRunning = IsProcessRunning(processName_);
+	
+	return ret;
+}
+
 //process
-HANDLE Detector::GetProcessHandle() {
-	HANDLE handle{};
+Detector::ProcessInformation Detector::GetProcessInfromation() {
+	ProcessInformation pi{};
 
 	vector<ST_PROCESS_INFO> vec;
 
 	if (core::EnumProcesses(processName_, vec) > 0 && !vec.empty()) {
-		DWORD pid = vec[0].dwPID;
-		handle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pid);
+		pi.processId_ = vec[0].dwPID;
+		pi.processHandle_ = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, pi.processId_);
 	}
 
-	return handle;
+	return pi;
 }
 
 tstring Detector::GetProcessBinaryPath() {
 	WCHAR tempPath[MAX_PATH];
 
-	GetModuleFileNameEx(processHandle_, nullptr, tempPath, MAX_PATH);
+	GetModuleFileNameEx(pi_.processHandle_, nullptr, tempPath, MAX_PATH);
 
 	return tempPath;
+}
+
+uint16_t Detector::GetProcessID(const std::tstring& processName) {
+	DWORD ret{};
+	HANDLE handle{};
+
+	try {
+		if ((handle = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, NULL)) == INVALID_HANDLE_VALUE)
+			throw runtime_error("Failed to snapshot");
+
+		PROCESSENTRY32 entry{};
+		entry.dwSize = sizeof(entry);
+
+		if (Process32First(handle, &entry)) {
+			while (Process32Next(handle, &entry)) {
+				if ((memcmp(processName.data(), entry.szExeFile, processName.size()-1)) == 0) {
+					ret = entry.th32ProcessID;
+					break;
+				}
+			}
+		}
+	}
+	catch (const exception& e) {
+		WarningMsg(string("<GetProcessID> ").append(e.what()));
+	}
+
+	if (handle) CloseHandle(handle);
+
+	return ret;
+}
+
+bool Detector::IsProcessRunning(const std::tstring& processName) {
+	//string pName(processName.begin(), processName.end());
+	uint16_t pid{};
+
+	try{
+		if ((pid = GetProcessID(processName)) != pi_.processId_) 
+			return false;
+
+	}
+	catch (const exception& e) {
+		WarningMsg(string("<IsProcessRunning> ").append(e.what()));
+		return false;
+	}
+	return true;
 }
 
 //hash
@@ -185,11 +261,11 @@ vector<Detector::Section> Detector::GetSectionTypes(vector<BYTE>& binary) {
 		if (dosHeader == nullptr) throw runtime_error("Failed to convert section header.");
 
 		for (int i = 0; i < ntHeader->FileHeader.NumberOfSections; i++) {
-			for (int i = 0; i < sectionToStringAry.size(); i++) {
-				if (sectionToStringAry[i].compare(reinterpret_cast<char*>(sectionHeader->Name)) == 0) {
-					ret.push_back(Section(i));
-					break;
-				}
+			int cnt = sizeof(sectionList_) / sizeof(sectionList_[0]);
+			
+			for (int j = 0; j < cnt; j++) {
+				if(memcmp(sectionList_[j], sectionHeader->Name, sizeof(sectionHeader->Name)) == 0)
+					ret.push_back(Section(j));
 			}
 
 			sectionHeader++;
@@ -202,7 +278,7 @@ vector<Detector::Section> Detector::GetSectionTypes(vector<BYTE>& binary) {
 	return ret;
 }
 
-std::vector<BYTE> Detector::GetSectionData(HANDLE handle, const Detector::Section& sc) {
+vector<BYTE> Detector::GetSectionData(HANDLE handle, const Detector::Section& sc) {
 	vector<BYTE> ret{};
 
 	try {
@@ -234,7 +310,12 @@ std::vector<BYTE> Detector::GetSectionData(HANDLE handle, const Detector::Sectio
 			scName = reinterpret_cast<char*>(sectionHeader->Name);
 			if (scName.empty()) throw runtime_error("Failed to convert section name to string");
 
-			if (scName.compare(sectionToStringAry[sc]) == 0) {
+			/*if (scName.compare(sectionList_[sc]) == 0) {
+				findSection = true;
+				break;
+			}*/
+
+			if (memcmp(sectionList_[sc], sectionHeader->Name, sizeof(sectionHeader->Name)) == 0) {
 				findSection = true;
 				break;
 			}
@@ -261,6 +342,28 @@ std::vector<BYTE> Detector::GetSectionData(HANDLE handle, const Detector::Sectio
 	catch (const exception& e) {
 		WarningMsg(string("<GetSectionBinary> ").append(e.what()));
 		ret.clear();
+	}
+
+	return ret;
+}
+
+map <Detector::Section, vector<BYTE>> Detector::GetAllSectionData(HANDLE handle) {
+	map <Detector::Section, vector<BYTE>> ret{};
+	
+	try {
+		if (sectionHashs_.empty()) throw runtime_error("Section hashs is empty.");
+
+		for (const auto& sh : sectionHashs_) {
+			auto section = GetSectionData(handle, sh.first);
+			if (section.empty()) throw runtime_error("Failed to get section data.");
+
+			auto hash = CalcHash(section.data(), section.size());
+			if (hash.empty()) throw runtime_error("Failed to calculate section hash.");
+
+            ret[sh.first] = hash;
+		}
+	}catch(const exception& e) {
+		WarningMsg(string("<GetAllSectionData> ").append(e.what()));
 	}
 
 	return ret;
@@ -312,6 +415,11 @@ void Detector::Pause() {
 	cv_.wait(lck);
 }
 
+void Detector::End() {
+	stat_ = STATUS_ENDED;
+	Play();
+}
+
 void Detector::Run() {
 	stat_ = STATUS_RUNNING;
 
@@ -324,17 +432,34 @@ void Detector::Stop() {
 	stat_ = STATUS_STOPPED;
 }
 
+bool Detector::Detected() {
+	//another boolean variable?
+	return logList_.size();
+}
+
 void Detector::WorkerFunc() {
 	while (1) {
 		try {
+			std::this_thread::sleep_for(chrono::milliseconds(workingTick_));
 			switch (stat_) {
 			case STATUS_IDLE: {
 				Pause();
 				break;
 			}
 			case STATUS_RUNNING: {
-				if (!CompareDLLs());
-				if (!CompareIAT());
+				unique_lock<mutex> lck(dataMtx_);
+				bool detected = false;
+
+				//if (!CompareHash());
+				if (!CompareDLLs()) detected = true;
+				if (!CompareIAT()) detected = true;
+				if (!CompareSection(Section::TEXT)) detected = true;
+				if (!IsProcessRunning(processName_)) {
+					detected = true;
+					End();
+				}
+
+				if (detected) logList_.push_back(GetLogInfo());
 				break;
 			}
 			case STATUS_STOPPED: {
@@ -359,8 +484,6 @@ void Detector::WorkerFunc() {
 	}
 }
 
-
-
 DWORD Detector::CalcRVA(const IMAGE_NT_HEADERS* ntHeader, const DWORD& RVA) {
 	auto* section = IMAGE_FIRST_SECTION(ntHeader);
 
@@ -378,31 +501,6 @@ DWORD Detector::CalcRVA(const IMAGE_NT_HEADERS* ntHeader, const DWORD& RVA) {
 
 	return ret;
 }
-
-//map<tstring, vector<tstring>> Detector::GetIAT(core::CPEParser& parser) {
-//	map<tstring, vector<tstring>> ret{};
-//
-//	try {
-//		if (!parser.Parse(processBinaryPath_)) throw runtime_error("Failed to parse PE file.");
-//
-//		std::vector<core::ST_IMPORT_FUNC> imports{};
-//		
-//		if (parser.GetImportFunction(imports) != EC_SUCCESS)
-//			throw runtime_error("Failed to get import function");
-//		
-//		for (const auto& item : imports) {
-//			tstring moduleName(item.strModuleName.begin(), item.strModuleName.end());
-//			tstring funcName(item.strFuncName.begin(), item.strFuncName.end());
-//
-//			ret[moduleName].push_back(funcName);
-//		}
-//	}
-//	catch (const std::exception& e) {
-//		WarningMsg(string("<CheckIAT> Failed to call GetIAT: ").append(e.what()));
-//	}
-//
-//	return ret;
-//}
 
 map<string, vector<string>> Detector::GetIAT(PBYTE dataPtr, bool dynamic) {
 	std::map<std::string, std::vector<std::string>> ret{};
@@ -525,11 +623,12 @@ bool Detector::CompareDLLs() {
 	try {
 		if (dllList_.empty()) return false;
 
-		vector<tstring> cmpDllList = GetDllList(processHandle_);
+		vector<tstring> cmpDllList = GetDllList(pi_.processHandle_);
 
 		for (int i = 0; i < cmpDllList.size(); i++) {
 			bool cmpRet = false;
 
+			//compare dll list
 			for (int j = 0; j < dllList_.size(); j++) {
 				if (cmpDllList[i] == dllList_[j]) {
 					cmpRet = true;
@@ -537,17 +636,22 @@ bool Detector::CompareDLLs() {
 				}
 			}
 
+			//exception dll list check
 			if (!cmpRet) {
-				wcout << "Other DLL : ";
-				wcout << cmpDllList.at(i) << endl;
-				break;
+				for(int i=0; i<sizeof(exceptionDllList_); i++) {
+					if(cmpDllList[i].compare(exceptionDllList_[i]) == 0) {
+						cmpRet = true;
+						break;
+					}
+				}
 			}
 		}
+		
+		if (processDllList_ != cmpDllList || processDllList_.empty())
+			processDllList_ = cmpDllList;
 
-		if (dllList_ != cmpDllList) {
-			cout << "DLL list mismatch!" << endl;
+		if (dllList_ != cmpDllList)
 			return false;
-		}
 	}
 	catch (const exception& e) {
 		ErrorMsg(string("<CompareDLLs> ").append(e.what()));
@@ -563,28 +667,29 @@ bool Detector::CompareIAT() {
 	try {
 		if (iatInfo_.empty()) return false;
 
-		if (!EnumProcessModulesEx(processHandle_, hMods, sizeof(hMods), &cbNeeded, LIST_MODULES_ALL))
+		if (!EnumProcessModulesEx(pi_.processHandle_, hMods, sizeof(hMods), &cbNeeded, LIST_MODULES_ALL))
 			throw runtime_error("Failed to enumerate process modules.");
 
 		MODULEINFO moduleInfo{};
 
-		if (!GetModuleInformation(processHandle_, hMods[0], &moduleInfo, sizeof(moduleInfo)))
+		if (!GetModuleInformation(pi_.processHandle_, hMods[0], &moduleInfo, sizeof(moduleInfo)))
 			throw runtime_error("Failed to get module information.");
 
 		std::vector<BYTE> buffer(moduleInfo.SizeOfImage, 0);
 		SIZE_T readed{};
 
 
-		if (!ReadProcessMemory(processHandle_, hMods[0], buffer.data(), buffer.size(), &readed))
+		if (!ReadProcessMemory(pi_.processHandle_, hMods[0], buffer.data(), buffer.size(), &readed))
 			throw runtime_error("Failed to read process memory.");
 
 		auto dpIATInfo = GetIAT(buffer.data(), true);
 		if (dpIATInfo.empty()) throw runtime_error("Failed to get iat ");
 
-		if (dpIATInfo != iatInfo_) {
-			cout << "[WARNING] Wrong type of iAT etected!" << endl;
+		if(processIatInfo_ != dpIATInfo || processIatInfo_.empty())
+			processIatInfo_ = dpIATInfo;
+
+		if (dpIATInfo != iatInfo_)
 			return false;
-		}
 	}
 	catch (const exception& e) {
 		ErrorMsg(string("<CompareIAT> ").append(e.what()));
@@ -608,27 +713,54 @@ void Detector::PrintIAT() {
 		cout << info.first << endl;
 }
 
-bool Detector::SectionCompare() {
+bool Detector::CompareSection(const Detector::Section sc) {
 	HMODULE hMods[MODS_COUNT]{};
-
 	DWORD needed{};
+
 	try {
 		for(const auto& sh : sectionHashs_) {
-			auto section = GetSectionData(processHandle_, sh.first);
+			if (sh.first != sc) continue;
+
+			auto section = GetSectionData(pi_.processHandle_, sh.first);
+
 			auto hash = CalcHash(section.data(), section.size());
-			if (hash != sh.second) {
-				return false;
-			}
+			if (hash.empty()) throw runtime_error("Failed to calculate section hash.");
+
+			if(processSectionHashs_[sh.first].empty() || processSectionHashs_[sh.first] != hash)
+				processSectionHashs_[sh.first] = hash;
+
+			if(hash != sh.second) return false;
 		}
 	}
 	catch (const exception& e) {
-		WarningMsg(string("<test> ").append(e.what()));
+		WarningMsg(string("<CompareSection> ").append(e.what()));
 	}
 
 	return true;
 }
 
+Detector::LogInformation Detector::GetLog() {
+	unique_lock<mutex> lck(dataMtx_);
 
-void Detector::Test() {
-	if (!SectionCompare()) cout << "!!!!" << endl;
+	auto ret = logList_.front();
+	logList_.pop_front();
+
+	return ret;
+}
+
+void Detector::test() {
+	bool detected = false;
+
+	if (!CompareDLLs()) detected = true;
+	if (!CompareIAT()) detected = true;
+	if (!CompareSection(Section::TEXT)) detected = true;
+	if (!IsProcessRunning(processName_)) {
+		detected = true;
+		End();
+	}
+
+	if(detected) {
+		cout << "Somethings detected!" << endl;
+		logList_.push_back(GetLogInfo());
+	}
 }
