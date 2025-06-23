@@ -47,9 +47,7 @@ bool NetworkManager::Init() {
 				if (bind(ni_.socket_, reinterpret_cast<sockaddr*>(&ni_.sockAddr_), sizeof(ni_.sockAddr_)) != 0) {
 					cerr << GetLastError() << endl;
 					throw runtime_error("Failed to bind socket");
-				}
-					
-
+				}	
 				if (listen(ni_.socket_, SOMAXCONN) == SOCKET_ERROR)
 					throw runtime_error("Failed to listen socket.");
 

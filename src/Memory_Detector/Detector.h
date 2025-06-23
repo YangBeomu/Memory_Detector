@@ -2,7 +2,6 @@
 
 class Detector
 {
-
 protected:
 	enum status {
 		STATUS_IDLE = 0,
@@ -43,7 +42,41 @@ protected:
 	};
 
 	static constexpr const TCHAR* exceptionDllList_[] = {
-		TEXT("apphelp.dll"),
+		TEXT("ntdll.dll"),
+		TEXT("KERNEL32.DLL"),
+		TEXT("KERNELBASE.dll"),
+		TEXT("USER32.dll"),
+		TEXT("GDI32.dll"),
+		TEXT("gdi32full.dll"),
+		TEXT("win32u.dll"),
+		TEXT("ucrtbase.dll"),
+		TEXT("msvcrt.dll"),
+		TEXT("msvcp_win.dll"),
+		TEXT("WS2_32.dll"),
+		TEXT("RPCRT4.dll"),
+		TEXT("IMM32.dll"),
+		TEXT("kernel.appcore.dll"),
+		TEXT("sechost.dll"),
+		TEXT("advapi32.dll"),
+		TEXT("bcryptPrimitives.dll"),
+		TEXT("mswsock.dll"),
+		TEXT("TextShaping.dll"),
+		TEXT("combase.dll"),
+		TEXT("OLEAUT32.dll"),
+		TEXT("ole32.dll"),
+		TEXT("uxtheme.dll"),
+		TEXT("MSCTF.dll"),
+		TEXT("textinputframework.dll"),
+		TEXT("CoreMessaging.dll"),
+		TEXT("CoreUIComponents.dll"),
+		TEXT("wintypes.dll"),
+		TEXT("CRYPTBASE.dll"),
+		TEXT("SHCore.dll"),
+		TEXT("SHLWAPI.dll"),
+		TEXT("version.dll"),
+		TEXT("cfgmgr32.dll"),
+		TEXT("powrprof.dll"),
+		TEXT("profapi.dll"),
 	};
 
 	struct LogInformation {
