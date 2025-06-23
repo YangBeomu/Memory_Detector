@@ -43,7 +43,7 @@ protected:
 	};
 
 	static constexpr const TCHAR* exceptionDllList_[] = {
-		_T("apphelp.dll"),
+		TEXT("apphelp.dll"),
 	};
 
 	struct LogInformation {
@@ -199,6 +199,6 @@ public:
 	//LOG
 	LogInformation GetLog();
 
-	void test();
+	bool detect(std::vector<BYTE>& hash);
 };
 

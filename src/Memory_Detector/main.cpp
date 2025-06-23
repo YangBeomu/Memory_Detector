@@ -5,9 +5,12 @@ using namespace std;
 
 tstring g_fileName{};
 tstring g_mode{}; // "monitor" or "console"
+tstring g_tmpPathName(TEXT("Memory_Detector"));
+
+const char* g_hash = "ec498c59eb6075b7632d925d41d7e135938f998520eff2aeb567a34328d92fcc";
 
 void usage() {
-	cout << "Usage:Api_Hooking_Detector.exe <process> <mode> " << endl;
+	cout << "Usage:Api_Hooking_Detector.exe <process> <mode>" << endl;
 	cout << "Example:Api_Hooking_Detector.exe Project1.exe monitor" << endl;
 	cout << "This program detects API hooking by comparing DLLs and IAT." << endl;
 	cout << "Available modes: monitor, console" << endl;
@@ -49,24 +52,19 @@ void PrintList() {
 int _tmain(int argc, TCHAR* argv[]) {
 	try {
 		if (!parse(argc, argv)) throw runtime_error("Failed to parse");
-		
-		std::tstring logPath{};
-		//init log file
-		{
-			std::vector<TCHAR> buffer(MAX_PATH);
 
-			int ret{};
-			ret = GetTempPath2(buffer.size(), buffer.data());
-			buffer[ret] = '\0';
+		std::vector<BYTE> hash(32, 0);
+		core::HexFromString(hash.data(), hash.size(), g_hash);
 
-			logPath.append(buffer.data());
-			logPath.append(TEXT("md\\"));
+		NetworkManager nm(NetworkManager::Type::CLIENT, ntohl(Ip("127.0.0.1")), 8987);
+		nm.Run();
 
-			if (!core::CreateDirectory(logPath.c_str()))
-				throw runtime_error("Failed to create directory");
-		}
+		std::tstring logPath = utils::GetTmpPathWithMkDir(g_tmpPathName);
+		if (logPath.empty()) throw runtime_error("Failed to call GetTmpPath");
+
 
 		Detector detector(g_fileName);
+		
 		Logger logger(logPath);
 
 		if (g_mode.compare(_T("console")) == 0) {
@@ -91,12 +89,8 @@ int _tmain(int argc, TCHAR* argv[]) {
 				case 2: // Compare Hash (ÀÌÀü 1¹ø)
 				{
 					cout << "===== Hash =====" << endl;
-					BYTE tmp[] = "test";
 
-					vector<BYTE> test{ sizeof(tmp) };
-					memcpy(test.data(), tmp, test.size());
-
-					if (!detector.CompareHash(test)) {
+					if (!detector.CompareHash(hash)) {
 						cout << "Hash Comparison result: Mismatch detected!" << endl;
 						cout << "File might have been modified or tampered with." << endl;
 					}
@@ -152,8 +146,20 @@ int _tmain(int argc, TCHAR* argv[]) {
 				case 9: // Test Function
 				{
 					cout << "===== Running Test Function =====" << endl;
-					detector.test();
-					logger.Log(detector, Logger::XML);
+					if (detector.detect(hash)) {
+						logger.Log(detector, Logger::XML);
+						auto files = utils::GetTempFiles(g_tmpPathName);
+						if (files.empty()) throw runtime_error("Failed to call GetTempFiles");
+
+						for (const auto& file : files)
+							nm.PushData(reinterpret_cast<const char*>(file.data()), file.size());
+
+
+						utils::RemoveFIles(g_tmpPathName);
+
+						return 0;
+						break;
+					}
 					cout << "=================================" << endl;
 				}
 				break;
@@ -168,18 +174,26 @@ int _tmain(int argc, TCHAR* argv[]) {
 				cout << endl;
 			}
 		}
-		else if (g_mode.compare(_T("monitor")) == 0)  {
-			while(1) {
+		else if (g_mode.compare(_T("monitor")) == 0) {
+			while (1) {
 				std::this_thread::sleep_for(chrono::milliseconds(100));
 
-				detector.Run();
-				if (detector.Detected()) {
+				if (detector.detect(hash)) {
 					logger.Log(detector, Logger::XML);
-				}
+					auto fileBinarys = utils::GetTempFiles(g_tmpPathName);
+					if (fileBinarys.empty()) throw runtime_error("Failed to call GetTempFiles");
 
+					for (const auto& file : fileBinarys)
+						nm.PushData(reinterpret_cast<const char*>(file.data()), file.size());
+
+					utils::RemoveFIles(g_tmpPathName);
+
+					return 0;
+					break;
+				}
 			}
 		}
-}
+	}
 	catch (const std::exception& e) {
 		cerr << "[main] Exception: " << e.what() << endl;
 		return EXIT_FAILURE;

@@ -224,7 +224,7 @@ bool Detector::IsProcessRunning(const std::tstring& processName) {
 
 //hash
 vector<BYTE> Detector::CalcHash(PBYTE buffer, uint bufferSize) {
-	vector<BYTE> ret(SHA256_DIGEST_LENGTH, 0);
+	vector<BYTE> ret{};
 	EVP_MD_CTX* ctx = EVP_MD_CTX_new(); // Create a new EVP_MD_CTX
 	const EVP_MD* md = EVP_sha256();    // Specify SHA256 algorithm
 
@@ -237,6 +237,7 @@ vector<BYTE> Detector::CalcHash(PBYTE buffer, uint bufferSize) {
 		if (EVP_DigestUpdate(ctx, buffer, bufferSize) != 1) throw runtime_error("Failed to update digest");
 		if (EVP_DigestFinal_ex(ctx, hash, nullptr) != 1) throw runtime_error("Failed to finalize digest");
 
+		ret.resize(SHA256_DIGEST_LENGTH);
 		memcpy(ret.data(), hash, sizeof(hash));
 	}
 	catch (const exception& e) {
@@ -638,23 +639,27 @@ bool Detector::CompareDLLs() {
 
 			//exception dll list check
 			if (!cmpRet) {
-				for(int i=0; i<sizeof(exceptionDllList_); i++) {
-					if(cmpDllList[i].compare(exceptionDllList_[i]) == 0) {
+				for(int j=0; j< sizeof(exceptionDllList_) / sizeof(exceptionDllList_[0]); j++) {
+					if(cmpDllList[i].compare(exceptionDllList_[j]) == 0) {
 						cmpRet = true;
 						break;
 					}
 				}
 			}
-		}
-		
-		if (processDllList_ != cmpDllList || processDllList_.empty())
-			processDllList_ = cmpDllList;
 
-		if (dllList_ != cmpDllList)
-			return false;
+			if (processDllList_ != cmpDllList || processDllList_.empty())
+				processDllList_ = cmpDllList;
+
+			if (!cmpRet) {
+				if (dllList_ != cmpDllList)
+					return false;
+			}
+		}
+
+		
 	}
 	catch (const exception& e) {
-		ErrorMsg(string("<CompareDLLs> ").append(e.what()));
+		WarningMsg(string("<CompareDLLs> ").append(e.what()));
 	}
 
 	return true;
@@ -692,7 +697,7 @@ bool Detector::CompareIAT() {
 			return false;
 	}
 	catch (const exception& e) {
-		ErrorMsg(string("<CompareIAT> ").append(e.what()));
+		WarningMsg(string("<CompareIAT> ").append(e.what()));
 	}
 
 	return true;
@@ -740,27 +745,38 @@ bool Detector::CompareSection(const Detector::Section sc) {
 }
 
 Detector::LogInformation Detector::GetLog() {
-	unique_lock<mutex> lck(dataMtx_);
+	LogInformation ret{};
 
-	auto ret = logList_.front();
-	logList_.pop_front();
+	try {
+		unique_lock<mutex> lck(dataMtx_);
+
+		if (logList_.empty()) throw runtime_error("Failed to get log");
+
+		ret = logList_.front();
+		logList_.pop_front();
+	}
+	catch (const exception& e) {
+		WarningMsg(string("<GetLog> ").append(e.what()));
+	}
 
 	return ret;
 }
 
-void Detector::test() {
+bool Detector::detect(vector<BYTE>& hash) {
 	bool detected = false;
 
+	//if (!CompareHash(hash)) detected = true;
 	if (!CompareDLLs()) detected = true;
 	if (!CompareIAT()) detected = true;
 	if (!CompareSection(Section::TEXT)) detected = true;
-	if (!IsProcessRunning(processName_)) {
-		detected = true;
-		End();
-	}
-
+	if (!IsProcessRunning(processName_)) detected = true;
+	
 	if(detected) {
 		cout << "Somethings detected!" << endl;
 		logList_.push_back(GetLogInfo());
+
+		return true;
 	}
+
+	return false;
 }
